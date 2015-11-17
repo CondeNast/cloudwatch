@@ -1,4 +1,4 @@
-(defproject cloudwatch "0.0.1-SNAPSHOT"
+(defproject cloudwatch "0.0.1"
   :description "Sindicati cloudwatch helper library"
   :license "Owned by CondeNast"
   :url "http://github.com/ziplist/cloudwatch"

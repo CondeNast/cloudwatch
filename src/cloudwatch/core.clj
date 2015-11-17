@@ -43,14 +43,14 @@
                                    :dimensions dimensions
                                    :value metric-value})))
 (defn put-all-metrics
-  []
+  [namespace]
   (swap! cloudwatch-pending (fn [pending]
     (try
       (doseq [chunk (partition-all 20 pending)]
         (do
           (logger/info "Putting Metrics: " (count chunk))
           (cloudwatch/put-metric-data (cloudwatch-cred)
-            :namespace (str (config/cloudwatch-prefix) "Sindicati/Spugna")
+            :namespace namespace
             :metric-data chunk)))
       []
       (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e)))))))
@@ -73,7 +73,7 @@
   (reset! cloudwatch-processing-future nil))
 
 (defn start-cloudwatch-processing
-  []
+  [cloudwatch-namespace]
   (println "STARTING: Collecting / Submitting memory CLoudwatch metrics")
   (if (not @cloudwatch-processing-future)
       (reset! cloudwatch-processing-future
@@ -87,5 +87,5 @@
                         (metric "free-memory" {"instance-id" (aws-instance-id)} "Bytes" (free-jvm-memory))
                         (metric "available-memory" {"instance-id" (aws-instance-id)} "Bytes" (available-jvm-memory))
                         (metric "max-memory" {"instance-id" (aws-instance-id)} "Bytes" (max-jvm-memory) )
-                        (put-all-metrics)))
+                        (put-all-metrics cloudwatch-namespace)))
                   )))))
