@@ -82,7 +82,7 @@
                 (future
                   (while true
                    (do
-                        (Thread/sleep 60000)
+                        (Thread/sleep 30000)
                         (println "Collecting / Submitting memory CLoudwatch metrics")
                         (metric "free-memory" {"instance-id" (aws-instance-id)} "Bytes" (free-jvm-memory))
                         (metric "available-memory" {"instance-id" (aws-instance-id)} "Bytes" (available-jvm-memory))
