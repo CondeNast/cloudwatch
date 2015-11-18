@@ -40,6 +40,7 @@
   (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
     (swap! cloudwatch-pending conj { :metric-name metric-name
                                    :unit metric-unit
+                                   :timestamp (t/now)
                                    :dimensions dimensions
                                    :value metric-value})))
 (defn put-all-metrics
@@ -51,7 +52,9 @@
           (logger/info "Putting Metrics: " (count chunk))
           (cloudwatch/put-metric-data (cloudwatch-cred)
             :namespace namespace
-            :metric-data chunk)))
+            :metric-data chunk)
+          (Thread/sleep 250)
+          ))
       []
       (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e)))))))
 
