@@ -1,4 +1,5 @@
-(ns cloudwatch.system)
+(ns cloudwatch.system
+  (:require [cloudwatch.system :refer [metric]]))
 
 
 (defn free-jvm-memory []
