@@ -38,6 +38,7 @@
   ([namespace metric-name metric-dimensions metric-unit metric-value]
 
     (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
+      (start-cloudwatch-processing)
       (swap! cloudwatch-pending conj { :namespace namespace
                                        :metric-name metric-name
                                        :unit metric-unit
