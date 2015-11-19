@@ -11,7 +11,6 @@
 (def cloudwatch-pending (atom []))
 
 (def meta-data-host (memoize (fn [] "169.254.169.254")))
-(def aws-instance-id (memoize (fn [] (slurp (str "http://" (meta-data-host) "/latest/meta-data/instance-id")))))
 
 (defn cloudwatch-cred []
   (if (or (not @cloudwatch-resp)

@@ -1,6 +1,5 @@
 (ns cloudwatch.system
-  (:require [cloudwatch.system :refer [metric]]))
-
+  (:require [cloudwatch.core :refer [metric aws-instance-id]]))
 
 (defn free-jvm-memory []
   (.freeMemory (java.lang.Runtime/getRuntime)))
