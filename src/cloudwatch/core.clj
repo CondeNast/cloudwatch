@@ -82,47 +82,47 @@
 
 (defn put-all-metrics
   []
-  (swap! cloudwatch-pending (fn [pending]
+  (let [pending (atom nil)]
+    (swap! cloudwatch-pending (fn [current] (reset! pending current) []))
     (try
-      (doseq [chunk (partition-all 20 (collect-total-metrics pending))]
+      (doseq [chunk (partition-all 20 (collect-total-metrics @pending))]
         (do
-          (logger/info "Putting Metrics: " (count chunk))
+          (logger/info "Putting Aggregate Metrics: " (count chunk))
           (cloudwatch/put-metric-data (cloudwatch-cred) chunk)
           (Thread/sleep 250)
           ))
       []
-      (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e)))))))
+      (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e))))))
 
 (def cloudwatch-processing-future (atom nil))
-(def cloudwatch-processing-running (atom false))
 
 (defn stop-cloudwatch-processing
   []
-
-  (reset! cloudwatch-processing-running false)
-
-  (if (future? @cloudwatch-processing-future)
-    (if (not (future-done? @cloudwatch-processing-future))
-      (if (not (future-cancelled? @cloudwatch-processing-future))
-        (future-cancel @cloudwatch-processing-future))))
-
+  (if @cloudwatch-processing-future
+    (future-cancel @cloudwatch-processing-future))
   (reset! cloudwatch-processing-future nil))
 
 (defn start-cloudwatch-processing
   [& opts]
   (let [args (apply hash-map opts)
-        update-rate (or (:update-rate args) 60000)]
-
-    (reset! cloudwatch-processing-running true)
-
+        update-rate (or (:update-rate args) 30000)]
     (if (not @cloudwatch-processing-future)
         (reset! cloudwatch-processing-future
               (do
                 (future
-                  (while @cloudwatch-processing-running
-                     (do
-                          (Thread/sleep update-rate)
-                          (put-all-metrics)))))))))
+                  (while true
+                     (try
+                        (Thread/sleep update-rate)
+                        (put-all-metrics)
+                      (catch Exception e (logger/error "Cloudwatch processing error: " e))))))))))
+
+(comment
+  (metric "Testing-cfitz" "testable" {} "Count")
+  @cloudwatch-pending
+  (start-cloudwatch-processing :update-rate 1000)
+  (stop-cloudwatch-processing )
+  (put-all-metrics)
+  )
 
 (defn metric
   ([namespace metric-name metric-dimensions metric-unit ] (metric namespace metric-name metric-dimensions metric-unit 1))
