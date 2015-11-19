@@ -110,7 +110,7 @@
 (defn start-cloudwatch-processing
   [& opts]
   (let [args (apply hash-map opts)
-        update-rate (or (:update-rate args) 1000)]
+        update-rate (or (:update-rate args) 30000)]
     (if (not @cloudwatch-processing-future)
         (reset! cloudwatch-processing-future
               (do
