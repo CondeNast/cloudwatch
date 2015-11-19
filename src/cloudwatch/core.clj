@@ -4,15 +4,14 @@
             [clj-time.core :as t]
             [clj-http.client :as http]
             [clj-time.format :as tf]
-            [environ.core :refer [env]]
             [taoensso.timbre  :as logger]
             ))
+
 (def cloudwatch-resp (atom nil))
 (def cloudwatch-pending (atom []))
 
-(def meta-data-host (memoize (fn [] (or (env :meta-data-host) "169.254.169.254"))))
+(def meta-data-host (memoize (fn [] "169.254.169.254")))
 (def aws-instance-id (memoize (fn [] (slurp (str "http://" (meta-data-host) "/latest/meta-data/instance-id")))))
-
 
 (defn cloudwatch-cred []
   (if (or (not @cloudwatch-resp)
@@ -31,64 +30,108 @@
                    :request-new-creds-at expiration)
          ]
       (reset! cloudwatch-resp full-response))
-      ;full-response
       )
       @cloudwatch-resp)
 
 (defn metric
-  [metric-name metric-dimensions metric-unit metric-value]
-  (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
-    (swap! cloudwatch-pending conj { :metric-name metric-name
-                                   :unit metric-unit
-                                   :timestamp (t/now)
-                                   :dimensions dimensions
-                                   :value metric-value})))
+  ([namespace metric-name metric-dimensions metric-unit ] (metric namespace metric-name metric-dimensions metric-unit 1))
+  ([namespace metric-name metric-dimensions metric-unit metric-value]
+
+    (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
+      (swap! cloudwatch-pending conj { :namespace namespace
+                                       :metric-name metric-name
+                                       :unit metric-unit
+                                       :timestamp (t/now)
+                                       :dimensions dimensions
+                                       :value metric-value}))))
+
+(comment
+  (collect-total-metrics
+      [ {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions nil :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now)                 :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp  nil    :dimensions {:server "a"} :value 1}
+        {:namespace "a" :metric-name "test" :unit "Count" :timestamp  nil    :dimensions {:server "b"} :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "b" :metric-name "test2"              :timestamp (t/now) :dimensions {} :value 1}
+        {:namespace "a" :metric-name "test2" :unit "Count" :timestamp (t/now) :dimensions {} :value 3}])
+  )
+
+(defn collect-total-metrics
+  "Collects all the metrics that have been recorded locally, and combines them into statistic-sets
+   metrics with the same name and dimensions should have the same units / values"
+  [metric-datum]
+  (let [collected-metrics
+        (reduce (fn [coll metric]
+                  (let [key-str (clojure.string/join [(:namespace metric) (:metric-name metric) (json/write-str (or (:dimensions metric) {}))])]
+                    (update coll key-str conj metric))) {} metric-datum)
+
+        statistic-sets (map (fn [[_ metrics]]
+                              (let [unit (some :unit metrics)
+                                    dimensions (some :dimensions metrics)
+                                    timestamp (last (filter identity (map :timestamp metrics)))
+                                    namespace (:namespace (first metrics))
+
+                                    values (filter identity (map :value metrics))
+                                    stats {:minimum (apply min values)
+                                           :maximum (apply max values)
+                                           :sample-count (count values)
+                                           :sum (apply + values)}
+
+                                    datum (cond-> {:metric-name (:metric-name (first metrics))
+                                                   :statistic-values stats}
+                                             unit (assoc :unit unit)
+                                             dimensions (assoc :dimensions dimensions))
+                                    ]
+                                {:namespace namespace
+                                 :metric-data datum}
+                                )) collected-metrics)
+                             ]
+      statistic-sets))
+
 (defn put-all-metrics
-  [namespace]
+  []
   (swap! cloudwatch-pending (fn [pending]
     (try
-      (doseq [chunk (partition-all 20 pending)]
+      (doseq [chunk (partition-all 20 (collect-total-metrics pending))]
         (do
           (logger/info "Putting Metrics: " (count chunk))
-          (cloudwatch/put-metric-data (cloudwatch-cred)
-            :namespace namespace
-            :metric-data chunk)
+          (cloudwatch/put-metric-data (cloudwatch-cred) chunk)
           (Thread/sleep 250)
           ))
       []
       (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e)))))))
-
-(defn free-jvm-memory []
-  (.freeMemory (java.lang.Runtime/getRuntime)))
-
-(defn available-jvm-memory []
-  (.totalMemory (java.lang.Runtime/getRuntime)))
-
-(defn max-jvm-memory []
-  (.maxMemory (java.lang.Runtime/getRuntime)))
 
 (def cloudwatch-processing-future (atom nil))
 (def cloudwatch-processing-running (atom false))
 
 (defn stop-cloudwatch-processing
   []
-  (future-cancel @cloudwatch-processing-future)
+
+  (reset! cloudwatch-processing-running false)
+
+  (if (future? @cloudwatch-processing-future)
+    (if (not (future-done? @cloudwatch-processing-future))
+      (if (not (future-cancelled? @cloudwatch-processing-future))
+        (future-cancel @cloudwatch-processing-future))))
+
   (reset! cloudwatch-processing-future nil))
 
 (defn start-cloudwatch-processing
-  [cloudwatch-namespace]
-  (println "STARTING: Collecting / Submitting memory CLoudwatch metrics")
-  (if (not @cloudwatch-processing-future)
-      (reset! cloudwatch-processing-future
+  [& opts]
+  (let [args (apply hash-map opts)
+        update-rate (or (:update-rate args) 60000)]
+
+    (reset! cloudwatch-processing-running true)
+
+    (if (not @cloudwatch-processing-future)
+        (reset! cloudwatch-processing-future
               (do
-                (println "Setting running to true..")
                 (future
-                  (while true
-                   (do
-                        (Thread/sleep 30000)
-                        (println "Collecting / Submitting memory CLoudwatch metrics")
-                        (metric "free-memory" {"instance-id" (aws-instance-id)} "Bytes" (free-jvm-memory))
-                        (metric "available-memory" {"instance-id" (aws-instance-id)} "Bytes" (available-jvm-memory))
-                        (metric "max-memory" {"instance-id" (aws-instance-id)} "Bytes" (max-jvm-memory) )
-                        (put-all-metrics cloudwatch-namespace)))
-                  )))))
+                  (while @cloudwatch-processing-running
+                     (do
+                          (Thread/sleep update-rate)
+                          (put-all-metrics)))))))))
