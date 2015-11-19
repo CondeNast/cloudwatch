@@ -84,15 +84,20 @@
   []
   (let [pending (atom nil)]
     (swap! cloudwatch-pending (fn [current] (reset! pending current) []))
-    (try
-      (doseq [chunk (partition-all 20 (collect-total-metrics @pending))]
-        (do
-          (logger/info "Putting Aggregate Metrics: " (count chunk))
-          (cloudwatch/put-metric-data (cloudwatch-cred) chunk)
-          (Thread/sleep 250)
-          ))
-      []
-      (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e))))))
+    (let [aggregate-metrics (collect-total-metrics @pending)
+          by-namespace (group-by :namespace aggregate-metrics)]
+      (try
+        (doseq [[namespace namespace-metrics] by-namespace]
+          (let [all-datum (map :metric-data namespace-metrics)]
+            (doseq [chunk (partition-all 20 all-datum)]
+              (do
+                (logger/info "Putting Aggregate Metrics: " namespace (count chunk))
+                (cloudwatch/put-metric-data (cloudwatch-cred)
+                                            {:namespace namespace
+                                             :metric-data chunk})
+                (Thread/sleep 250)
+                ))))
+        (catch Exception e (logger/error "Metrics Reporting Error: " (pr-str e)))))))
 
 (def cloudwatch-processing-future (atom nil))
 
@@ -105,15 +110,15 @@
 (defn start-cloudwatch-processing
   [& opts]
   (let [args (apply hash-map opts)
-        update-rate (or (:update-rate args) 30000)]
+        update-rate (or (:update-rate args) 1000)]
     (if (not @cloudwatch-processing-future)
         (reset! cloudwatch-processing-future
               (do
                 (future
                   (while true
                      (try
-                        (Thread/sleep update-rate)
                         (put-all-metrics)
+                        (Thread/sleep update-rate)
                       (catch Exception e (logger/error "Cloudwatch processing error: " e))))))))))
 
 (comment
