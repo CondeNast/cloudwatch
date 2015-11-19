@@ -33,19 +33,6 @@
       )
       @cloudwatch-resp)
 
-(defn metric
-  ([namespace metric-name metric-dimensions metric-unit ] (metric namespace metric-name metric-dimensions metric-unit 1))
-  ([namespace metric-name metric-dimensions metric-unit metric-value]
-
-    (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
-      (start-cloudwatch-processing)
-      (swap! cloudwatch-pending conj { :namespace namespace
-                                       :metric-name metric-name
-                                       :unit metric-unit
-                                       :timestamp (t/now)
-                                       :dimensions dimensions
-                                       :value metric-value}))))
-
 (comment
   (collect-total-metrics
       [ {:namespace "b" :metric-name "test" :unit "Count" :timestamp (t/now) :dimensions {} :value 1}
@@ -136,3 +123,16 @@
                      (do
                           (Thread/sleep update-rate)
                           (put-all-metrics)))))))))
+
+(defn metric
+  ([namespace metric-name metric-dimensions metric-unit ] (metric namespace metric-name metric-dimensions metric-unit 1))
+  ([namespace metric-name metric-dimensions metric-unit metric-value]
+
+    (let [dimensions (map #(hash-map :name (key %1) :value (val %1)) metric-dimensions)]
+      (start-cloudwatch-processing)
+      (swap! cloudwatch-pending conj { :namespace namespace
+                                       :metric-name metric-name
+                                       :unit metric-unit
+                                       :timestamp (t/now)
+                                       :dimensions dimensions
+                                       :value metric-value}))))
