@@ -19,10 +19,10 @@
   :dependencies [
                  [org.clojure/clojure                  "1.7.0"]
                  [amazonica                            "0.3.22"]
-                 [clj-time "0.9.0"]
-                 [org.clojure/data.json "0.2.5"]
-                 [clj-http "1.1.2"]
-                 [com.taoensso/timbre   "3.4.0"]
+                 [clj-time "0.11.0"]
+                 [org.clojure/data.json "0.2.6"]
+                 [clj-http "2.0.0"]
+                 [com.taoensso/timbre   "4.1.4"]
                  ]
 
   :plugins   [[lein-environ     "1.0.0"]
